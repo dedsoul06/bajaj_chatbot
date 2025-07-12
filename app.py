@@ -1,18 +1,24 @@
-from flask import Flask, request, jsonify
-from chatbot import LocalBajajChatbot  # Import your existing class
+from flask import Flask, request, jsonify, send_from_directory
+from chatbot import LocalBajajChatbot
 import threading
+import os
 
-app = Flask(__name__)
+app = Flask(__name__, static_folder='static', template_folder='templates')
 
 # Initialize chatbot
 bot = LocalBajajChatbot()
 
 # Load data in background
 def init_bot():
-    bot.load_data("data/quarterly_reports", "data/financials.csv")
+    data_path = os.path.join(os.path.dirname(__file__), 'data')
+    bot.load_data(
+        pdf_folder=os.path.join(data_path, 'quarterly_reports'),
+        csv_path=os.path.join(data_path, 'financials.csv')
+    )
 threading.Thread(target=init_bot).start()
 
-@app.route('/ask', methods=['POST'])
+# API Endpoint
+@app.route('/api/ask', methods=['POST'])
 def ask():
     question = request.json.get('question')
     if not question:
@@ -20,31 +26,29 @@ def ask():
     
     try:
         answer = bot.answer_question(question)
-        return jsonify({"answer": answer})
+        return jsonify({
+            "answer": answer,
+            "status": "success"
+        })
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({
+            "error": str(e),
+            "status": "error"
+        }), 500
 
+# Serve Frontend
 @app.route('/')
 def home():
-    return """
-    <h1>Bajaj Chatbot</h1>
-    <form onsubmit="ask(); return false;">
-        <input id="question" placeholder="Ask something...">
-        <button>Submit</button>
-    </form>
-    <div id="answer"></div>
-    <script>
-        function ask() {
-            fetch('/ask', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({question: document.getElementById('question').value})
-            })
-            .then(r => r.json())
-            .then(data => document.getElementById('answer').innerText = data.answer || data.error);
-        }
-    </script>
-    """
+    return send_from_directory('static', 'index.html')
+
+# Serve static files
+@app.route('/static/<path:filename>')
+def static_files(filename):
+    return send_from_directory('static', filename)
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
+    # Create required folders if they don't exist
+    os.makedirs('static', exist_ok=True)
+    os.makedirs('data/quarterly_reports', exist_ok=True)
+    
+    app.run(host='0.0.0.0', port=5000, debug=True)
